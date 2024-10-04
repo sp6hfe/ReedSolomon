@@ -134,12 +134,14 @@ namespace reedsolomon
       return codeword;
     }
 
-    /// @brief Recover message from codeword provided
-    /// @note Tries to correct message errors using codeword's data
+    /// @brief Recover from codeword's data errors
     /// @param codeword Codeword
-    /// @return nullopt_t when message is not recoverable, Message otherwise
-    std::optional<Message> recoverMessage(const Codeword &codeword)
+    /// @return bool True when codeword's errors are not recoverable (no data is changed), False otherwise (codeword gets updated)
+    bool recoverCodeword(Codeword &codeword)
     {
+      static constexpr bool NO_ERROR{false};
+      static constexpr bool AN_ERROR{true};
+
       // load the data
       {
         uint8_t index{0U};
@@ -158,22 +160,21 @@ namespace reedsolomon
       // fix transmission channel errors
       const auto decodeError{decode_rs()};
 
-      // extract message
       if (decodeError)
       {
-        return {};
+        return AN_ERROR;
       }
 
-      Message message{};
+      // update codeword
       {
         auto index{0U};
-        for (auto &element : message)
+        for (auto &element : codeword)
         {
           element = static_cast<uint16_t>(recd[index++]);
         }
       }
 
-      return message;
+      return NO_ERROR;
     }
 
     /// @brief Constructor
