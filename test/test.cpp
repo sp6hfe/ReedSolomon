@@ -35,17 +35,17 @@ void printCodeword(const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousS
   }
 }
 
-bool validateMessages(
-    const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Message &message1,
-    const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Message &message2)
+bool validateCodewords(
+    const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Codeword &codeword1,
+    const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Codeword &codeword2)
 {
   static constexpr bool NO_ERROR{false};
   static constexpr bool AN_ERROR{true};
 
   auto index{0};
-  for (auto element : message1)
+  for (auto element : codeword1)
   {
-    if (element != message2.at(index++))
+    if (element != codeword2.at(index++))
     {
       return AN_ERROR;
     }
@@ -54,13 +54,45 @@ bool validateMessages(
   return NO_ERROR;
 }
 
+bool recoverAndValidateFaultyCodeword(
+    reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols> &rs,
+    reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Codeword &faultyCodeword,
+    const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Codeword &expectedCodeword)
+{
+  static constexpr bool NO_ERROR{false};
+  static constexpr bool AN_ERROR{true};
+
+  printf("\nCodeword received:  ");
+  printCodeword(faultyCodeword);
+
+  const auto dataRecoveryError{rs.recoverCodeword(faultyCodeword)};
+  if (dataRecoveryError)
+  {
+    printf("\nError: It was not possible to recover codeword's data");
+    return AN_ERROR;
+  }
+
+  printf("\nCodeword recovered: ");
+  printCodeword(faultyCodeword);
+
+  // Validate recovered codeword
+  const auto validated{(faultyCodeword == expectedCodeword)};
+  if (not validated)
+  {
+    printf("\nError: Recovered message do not match sent one");
+    return AN_ERROR;
+  }
+
+  return NO_ERROR;
+};
+
 int main()
 {
   // Test input
   const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Message message = {6, 15, 8, 9, 8, 3, 0, 0, 5};
   const reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols>::Codeword expectedCodeword = {6, 15, 8, 9, 8, 3, 0, 0, 5, 0, 12, 11, 2, 0, 9};
 
-  printf("\nTest for recovery from transmission channel errors using Reed-Solomon forward error correcion RS(%d,%d)\n", codewordSize, userDataSize);
+  printf("\nTest for recovery from transmission channel errors using Reed-Solomon forward error correction RS(%d,%d)\n", codewordSize, userDataSize);
 
   /* 1. Intstantiate RS(15,9) engine */
   reedsolomon::ReedSolomon<symbolSize, allowedErrorneousSymbols> rs{};
@@ -98,11 +130,15 @@ int main()
 
   printf("\nMessage to send:    ");
   printMessage(message);
+  printf("\nCodeword expected:  ");
+  printCodeword(expectedCodeword);
 
   /* 2. Encode message into codeword */
-  const auto codeword{rs.generateCodeword(message)};
+  printf("\n\nSimulating clear transmission channel");
 
-  printf("\nGenerated codeword: ");
+  auto codeword{rs.generateCodeword(message)};
+
+  printf("\nCodeword generated: ");
   printCodeword(codeword);
 
   // Validate codeword
@@ -122,118 +158,78 @@ int main()
 
   /* 3. Recover message from not modified codeword */
   {
-    const auto messageRecovered{rs.recoverMessage(codeword)};
-    if (not messageRecovered.has_value())
+    const auto error{recoverAndValidateFaultyCodeword(rs, codeword, expectedCodeword)};
+    if (error)
     {
-      printf("\nError: It was not possible to recover the message out of not modified codeword");
-      return -1;
-    }
-
-    printf("\nRecovered message:  ");
-    printMessage(messageRecovered.value());
-
-    // Validate recovered message
-    const auto validationError{validateMessages(messageRecovered.value(), message)};
-    if (validationError)
-    {
-      printf("\nError: Recovered message do not match sent one");
       return -1;
     }
   }
 
-  auto errorneousCodeword{codeword};
-
   /* 4. Make 1 error in the received codeword (say in the message area) and try to recover original message */
   {
+    auto errorneousCodeword{codeword};
     errorneousCodeword.at(2U) = 0x0;
 
     printf("\n\nSimulating transmission channel issue producing 1 error in the message area");
-    printf("\nFaulty codeword:    ");
-    printCodeword(errorneousCodeword);
+    printf("\nCodeword generated: ");
+    printCodeword(codeword);
 
-    const auto messageRecovered{rs.recoverMessage(errorneousCodeword)};
-    if (not messageRecovered.has_value())
+    const auto error{recoverAndValidateFaultyCodeword(rs, errorneousCodeword, expectedCodeword)};
+    if (error)
     {
-      printf("\nError: It was not possible to recover the message out of received codeword");
-      return -1;
-    }
-
-    printf("\nRecovered message:  ");
-    printMessage(messageRecovered.value());
-
-    // Validate recovered message
-    const auto validationError{validateMessages(messageRecovered.value(), message)};
-    if (validationError)
-    {
-      printf("\nError: Recovered message do not match sent one");
       return -1;
     }
   }
 
   /* 5. Make 2nd error in the received codeword (say also in the message area) and try to recover original message */
   {
+    auto errorneousCodeword{codeword};
+    errorneousCodeword.at(2U) = 0x0;
     errorneousCodeword.at(3U) = 0x0;
 
     printf("\n\nSimulating transmission channel issue producing 2 errors in the message area");
-    printf("\nFaulty codeword:    ");
-    printCodeword(errorneousCodeword);
+    printf("\nCodeword generated: ");
+    printCodeword(codeword);
 
-    const auto messageRecovered{rs.recoverMessage(errorneousCodeword)};
-    if (not messageRecovered.has_value())
+    const auto error{recoverAndValidateFaultyCodeword(rs, errorneousCodeword, expectedCodeword)};
+    if (error)
     {
-      printf("\nError: It was not possible to recover the message out of received codeword");
-      return -1;
-    }
-
-    printf("\nRecovered message:  ");
-    printMessage(messageRecovered.value());
-
-    // Validate recovered message
-    const auto validationError{validateMessages(messageRecovered.value(), message)};
-    if (validationError)
-    {
-      printf("\nError: Recovered message do not match sent one");
       return -1;
     }
   }
 
   /* 6. Make 3rd error in the received codeword (say in the FEC area) and try to recover original message */
   {
+    auto errorneousCodeword{codeword};
+    errorneousCodeword.at(2U) = 0x0;
+    errorneousCodeword.at(3U) = 0x0;
     errorneousCodeword.at(11U) = 0x0;
 
     printf("\n\nSimulating transmission channel issue producing 3 errors in the codeword");
-    printf("\nFaulty codeword:    ");
-    printCodeword(errorneousCodeword);
+    printf("\nCodeword generated: ");
+    printCodeword(codeword);
 
-    const auto messageRecovered{rs.recoverMessage(errorneousCodeword)};
-    if (not messageRecovered.has_value())
+    const auto error{recoverAndValidateFaultyCodeword(rs, errorneousCodeword, expectedCodeword)};
+    if (error)
     {
-      printf("\nError: It was not possible to recover the message out of received codeword");
-      return -1;
-    }
-
-    printf("\nRecovered message:  ");
-    printMessage(messageRecovered.value());
-
-    // Validate recovered message
-    const auto validationError{validateMessages(messageRecovered.value(), message)};
-    if (validationError)
-    {
-      printf("\nError: Recovered message do not match sent one");
       return -1;
     }
   }
 
   /* 7. Make 4th error in the received codeword which is too much for RS(15,9) */
   {
+    auto errorneousCodeword{codeword};
     errorneousCodeword.at(0U) = 0x0;
+    errorneousCodeword.at(2U) = 0x0;
+    errorneousCodeword.at(3U) = 0x0;
+    errorneousCodeword.at(11U) = 0x0;
 
     printf("\n\nSimulating transmission channel issue producing 4 errors in the codeword");
-    printf("\nFaulty codeword:    ");
-    printCodeword(errorneousCodeword);
+    printf("\nCodeword generated: ");
+    printCodeword(codeword);
 
-    const auto messageRecovered{rs.recoverMessage(errorneousCodeword)};
-    if (messageRecovered.has_value())
+    const auto error{recoverAndValidateFaultyCodeword(rs, errorneousCodeword, expectedCodeword)};
+    if (not error)
     {
       printf("\nError: It should't be possible to recover the message out of received codeword due to excessive amount of errors");
       return -1;
